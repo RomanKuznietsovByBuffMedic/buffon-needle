@@ -1,0 +1,21 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Manim: render TestCircle low quality",
+      "type": "shell",
+      "command": "uv run manim -pql main.py TestCircle",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Manim: render TestCircle medium quality",
+      "type": "shell",
+      "command": "uv run manim -pqm main.py TestCircle",
+      "problemMatcher": []
+    }
+  ]
+}
