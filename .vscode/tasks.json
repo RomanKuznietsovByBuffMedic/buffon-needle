@@ -1,15 +1,15 @@
 {
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "Render Manim scene",
-      "type": "shell",
-      "command": "uv run manim -ql buffon_scene.py ParallelLinesScene && mpv --force-window=yes media/videos/buffon_scene/480p15/ParallelLinesScene.mp4",
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
-      "problemMatcher": []
-    }
-  ]
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Render Manim scene",
+            "type": "shell",
+            "command": "uv run manim -qh buffon_scene.py BuffonNeedleExperimentScene && mpv --force-window=yes media/videos/buffon_scene/1080p60/BuffonNeedleExperimentScene.mp4",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        }
+    ]
 }
