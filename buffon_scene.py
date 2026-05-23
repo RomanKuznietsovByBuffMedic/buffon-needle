@@ -3,24 +3,33 @@ from manim import *
 
 class ParallelLinesScene(Scene):
     def construct(self):
-        # Distance between neighboring horizontal lines
-        d = 1.5
+        line_spacing = 1.5
+        number_of_lines = 5
+        line_length = 12
+        line_color = BLUE
+        title_font_size = 36
 
-        # Create a group for all parallel lines
         lines = VGroup()
 
-        # y-coordinates of the horizontal lines
-        y_values = [-3, -1.5, 0, 1.5, 3]
+        half_line_length = line_length / 2
+        center_offset = (number_of_lines - 1) / 2
 
-        for y in y_values:
+        for line_index in range(number_of_lines):
+            y = (line_index - center_offset) * line_spacing
+
+            vertical_shift = UP * y
+            start_point = LEFT * half_line_length + vertical_shift
+            end_point = RIGHT * half_line_length + vertical_shift
+
             line = Line(
-                start=LEFT * 6 + UP * y,
-                end=RIGHT * 6 + UP * y,
-                color=BLUE,
+                start=start_point,
+                end=end_point,
+                color=line_color,
             )
+
             lines.add(line)
 
-        title = Text("Buffon's needle experiment", font_size=36)
+        title = Text("Buffon's needle experiment", font_size=title_font_size)
         title.to_edge(UP)
 
         self.play(Write(title))
