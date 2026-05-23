@@ -1,5 +1,7 @@
 # Buffon Needle
 
+[Українська версія](README.uk.md)
+
 Manim project for visualizing Buffon's needle experiment.
 
 ## Goal
