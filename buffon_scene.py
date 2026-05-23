@@ -283,12 +283,13 @@ class BuffonNeedleExperimentScene(Scene):
 
             self.wait(0.20)
 
-            # 2. Random angle: the needle length stays fixed.
-            angle_sequence = [0, PI / 3, -PI / 5, needle_angle]
-
+            # 2. Random angle.
+            # Important: the preview needle is rotated as one rigid object.
+            # This keeps its length exactly equal to l during the whole animation.
+            start_angle = 0
             preview, _, _ = create_needle(
                 needle_mid,
-                angle_sequence[0],
+                start_angle,
                 needle_color=neutral_needle_color,
                 opacity=0.75,
             )
@@ -300,20 +301,19 @@ class BuffonNeedleExperimentScene(Scene):
                 run_time=0.35,
             )
 
-            for preview_angle in angle_sequence[1:]:
-                next_preview, _, _ = create_needle(
-                    needle_mid,
-                    preview_angle,
-                    needle_color=neutral_needle_color,
-                    opacity=0.75,
-                )
-                next_preview.set_z_index(12)
+            current_angle = start_angle
+            angle_sequence = [PI / 3, -PI / 5, needle_angle]
 
+            for target_angle in angle_sequence:
                 self.play(
-                    ReplacementTransform(preview, next_preview),
+                    Rotate(
+                        preview,
+                        angle=target_angle - current_angle,
+                        about_point=needle_mid,
+                    ),
                     run_time=0.72,
                 )
-                preview = next_preview
+                current_angle = target_angle
 
             needle.set_z_index(12)
 
@@ -323,7 +323,7 @@ class BuffonNeedleExperimentScene(Scene):
                 animations.append(FadeOut(info_box))
 
             self.play(*animations, run_time=0.42)
-
+            
         def show_result(needle, crosses, crossing_point):
             if crosses:
                 result_color = crossing_color
