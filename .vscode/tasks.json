@@ -2,20 +2,22 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Manim: render TestCircle low quality",
+      "label": "Manim: render ParallelLinesScene low quality",
       "type": "shell",
-      "command": "uv run manim -pql main.py TestCircle",
+      "command": "uv run manim -ql buffon_scene.py ParallelLinesScene && mpv --force-window=yes media/videos/buffon_scene/480p15/ParallelLinesScene.mp4",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "group": {
         "kind": "build",
         "isDefault": true
       },
-      "problemMatcher": []
-    },
-    {
-      "label": "Manim: render TestCircle medium quality",
-      "type": "shell",
-      "command": "uv run manim -pqm main.py TestCircle",
-      "problemMatcher": []
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
     }
   ]
 }
