@@ -221,8 +221,7 @@ class BuffonNeedleExperimentScene(Scene):
 
             box_w = 3.15
             box_h = 1.74
-            box_center_x = half_line_len - box_w / 2
-            box_center = RIGHT * box_center_x + UP * 2.18
+            box_center = RIGHT * 4.42 + UP * 2.18
 
             background = RoundedRectangle(
                 width=box_w,
@@ -323,7 +322,7 @@ class BuffonNeedleExperimentScene(Scene):
                 animations.append(FadeOut(info_box))
 
             self.play(*animations, run_time=0.42)
-            
+
         def show_result(needle, crosses, crossing_point):
             if crosses:
                 result_color = crossing_color
@@ -509,6 +508,25 @@ class BuffonNeedleExperimentScene(Scene):
         # 1. Title
         self.play(Write(title), run_time=0.8)
         self.wait(0.3)
+
+        # 1.1. Infinite-floor assumption
+        floor_intro = VGroup(
+            Text("Infinite floor", font_size=30, color=WHITE),
+            Text("equally spaced parallel lines", font_size=28, color=WHITE),
+        )
+        floor_intro.arrange(DOWN, buff=0.12)
+        floor_intro_box = create_center_box(floor_intro, min_width=6.4)
+
+        self.play(
+            FadeIn(floor_intro_box),
+            run_time=0.55,
+        )
+        self.wait(1.4)
+
+        self.play(
+            FadeOut(floor_intro_box),
+            run_time=0.4,
+        )
 
         # 2. Parallel lines
         self.play(
