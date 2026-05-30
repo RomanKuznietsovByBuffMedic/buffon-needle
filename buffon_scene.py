@@ -1,684 +1,886 @@
-from manim import *
+from dataclasses import dataclass
+from dataclasses import field
 import math
 import random
+
+from manim import *
+
+
+@dataclass(frozen=True)
+class BoardConfig:
+    line_spacing: float = 1.45
+    line_count: int = 5
+    line_length: float = 18.0
+
+    @property
+    def needle_length(self):
+        return self.line_spacing
+
+    @property
+    def half_needle_length(self):
+        return self.needle_length / 2
+
+    @property
+    def half_line_length(self):
+        return self.line_length / 2
+
+    @property
+    def center_offset(self):
+        return (self.line_count - 1) / 2
+
+
+@dataclass(frozen=True)
+class VisualConfig:
+    line_color = BLUE
+    neutral_needle_color = WHITE
+    crossing_color = GREEN
+    non_crossing_color = RED
+    needle_outline_color = GRAY
+    intersection_color = YELLOW
+
+    title_font_size: int = 36
+    needle_width: int = 4
+    needle_outline_width: int = 6
+    box_fill_opacity: float = 0.78
+    fast_drop_time: float = 0.22
+
+    stats_box_width: float = 3.15
+    stats_box_height: float = 1.74
+    stats_box_center = RIGHT * 4.42 + UP * 2.18
+
+
+@dataclass(frozen=True)
+class ThrowSpec:
+    midpoint: object
+    angle: float
+
+
+@dataclass(frozen=True)
+class BatchSpec:
+    seed: int
+    count: int
+    opacity: float
+    total_after: int
+    crossing_after: int
+
+
+@dataclass
+class ExperimentCounts:
+    total: int = 0
+    crossing: int = 0
+
+    def add_throw(self, crosses):
+        self.total += 1
+
+        if crosses:
+            self.crossing += 1
+
+
+@dataclass(frozen=True)
+class ExperimentConfig:
+    final_total_count: int = 50_000
+    final_crossing_count: int = 31_831
+
+    visible_throws: list = field(
+        default_factory=lambda: [
+            ThrowSpec(LEFT * 4.3 + UP * 2.23, PI / 10),
+            ThrowSpec(LEFT * 2.2 + UP * 1.25, -PI / 2.7),
+            ThrowSpec(RIGHT * 0.5 + DOWN * 0.35, PI / 4.0),
+            ThrowSpec(RIGHT * 3.2 + UP * 0.25, -PI / 3.0),
+            ThrowSpec(LEFT * 4.7 + DOWN * 1.15, PI / 8.0),
+            ThrowSpec(RIGHT * 2.0 + DOWN * 2.18, -PI / 6.0),
+            ThrowSpec(LEFT * 0.7 + UP * 2.62, PI / 2.9),
+            ThrowSpec(RIGHT * 4.6 + DOWN * 0.55, -PI / 5.5),
+            ThrowSpec(LEFT * 3.3 + DOWN * 2.30, PI / 3.6),
+            ThrowSpec(RIGHT * 0.1 + UP * 0.28, -PI / 8.0),
+            ThrowSpec(LEFT * 1.6 + DOWN * 0.90, PI / 2.8),
+            ThrowSpec(RIGHT * 5.1 + UP * 1.85, -PI / 7.0),
+        ],
+    )
+
+    batch_specs: list = field(
+        default_factory=lambda: [
+            BatchSpec(11, 14, 0.21, 100, 64),
+            BatchSpec(22, 16, 0.19, 1_000, 637),
+            BatchSpec(33, 18, 0.17, 5_000, 3_183),
+            BatchSpec(44, 22, 0.15, 50_000, 31_831),
+        ],
+    )
+
+
+@dataclass
+class NeedleRecord:
+    needle: object
+    crosses: bool
+    crossing_point: object
+    midpoint: object
+    angle: float
+
+
+class BuffonGeometry:
+    def __init__(self, board):
+        self.board = board
+
+    def line_ys(self):
+        return [
+            (index - self.board.center_offset) * self.board.line_spacing
+            for index in range(self.board.line_count)
+        ]
+
+    def needle_endpoints(self, midpoint, angle):
+        direction = RIGHT * math.cos(angle) + UP * math.sin(angle)
+
+        start = midpoint - self.board.half_needle_length * direction
+        end = midpoint + self.board.half_needle_length * direction
+
+        return start, end
+
+    def crossing_data(self, midpoint, angle):
+        start, end = self.needle_endpoints(midpoint, angle)
+
+        y_start = start[1]
+        y_end = end[1]
+
+        lower_y = min(y_start, y_end)
+        upper_y = max(y_start, y_end)
+
+        if abs(y_end - y_start) < 1e-9:
+            return False, None
+
+        for line_y in self.line_ys():
+            if lower_y <= line_y <= upper_y:
+                t = (line_y - y_start) / (y_end - y_start)
+                x = start[0] + t * (end[0] - start[0])
+                crossing_point = RIGHT * x + UP * line_y
+
+                return True, crossing_point
+
+        return False, None
+
+    def random_throw_specs(self, seed, count):
+        rng = random.Random(seed)
+        specs = []
+
+        for _ in range(count):
+            x = rng.uniform(-5.25, 5.15)
+            y = rng.uniform(-2.55, 2.55)
+            angle = rng.uniform(-PI / 2.15, PI / 2.15)
+            midpoint = RIGHT * x + UP * y
+
+            specs.append(ThrowSpec(midpoint, angle))
+
+        return specs
+
+
+class BuffonMobjectFactory:
+    def __init__(self, board, visual, geometry):
+        self.board = board
+        self.visual = visual
+        self.geometry = geometry
+
+    def decimal_text(self, value, digits=5):
+        return f"{value:.{digits}f}".rstrip("0").rstrip(".")
+
+    def text_box(
+        self,
+        content,
+        min_width=0,
+        buff=0.22,
+        fill_opacity=None,
+    ):
+        if fill_opacity is None:
+            fill_opacity = self.visual.box_fill_opacity
+
+        box_width = max(content.width + 2 * buff, min_width)
+        box_height = content.height + 2 * buff
+
+        background = RoundedRectangle(
+            width=box_width,
+            height=box_height,
+            corner_radius=0.08,
+            color=BLACK,
+            fill_color=BLACK,
+            fill_opacity=fill_opacity,
+            stroke_opacity=0,
+        )
+        background.move_to(content.get_center())
+
+        group = VGroup(background, content)
+        group.set_z_index(30)
+
+        return group
+
+    def center_box(self, content, min_width=0):
+        content.move_to(ORIGIN)
+        return self.text_box(content, min_width=min_width)
+
+    def lines(self):
+        lines = VGroup()
+
+        for line_y in self.geometry.line_ys():
+            line = Line(
+                start=LEFT * self.board.half_line_length + UP * line_y,
+                end=RIGHT * self.board.half_line_length + UP * line_y,
+                color=self.visual.line_color,
+            )
+            lines.add(line)
+
+        return lines
+
+    def distance_markers(self):
+        markers = VGroup()
+        marker_xs = [-5.45, 5.45]
+        line_ys = self.geometry.line_ys()
+
+        for marker_x in marker_xs:
+            for lower_y, upper_y in zip(line_ys[:-1], line_ys[1:]):
+                marker = self.distance_marker(marker_x, lower_y, upper_y)
+                markers.add(marker)
+
+        return markers
+
+    def distance_marker(self, marker_x, lower_y, upper_y):
+        arrow = DoubleArrow(
+            start=RIGHT * marker_x + UP * lower_y,
+            end=RIGHT * marker_x + UP * upper_y,
+            buff=0.08,
+            color=WHITE,
+            stroke_width=2.0,
+        )
+
+        label = MathTex("d", font_size=28, color=WHITE)
+
+        if marker_x < 0:
+            label.next_to(arrow, LEFT, buff=0.08)
+        else:
+            label.next_to(arrow, RIGHT, buff=0.08)
+
+        return VGroup(arrow, label)
+
+    def needle(self, midpoint, angle, needle_color=None, opacity=1.0):
+        start, end = self.geometry.needle_endpoints(midpoint, angle)
+        crosses, crossing_point = self.geometry.crossing_data(midpoint, angle)
+
+        if needle_color is None:
+            needle_color = self.needle_color_for(crosses)
+
+        outline = Line(
+            start=start,
+            end=end,
+            color=self.visual.needle_outline_color,
+            stroke_width=self.visual.needle_outline_width,
+        )
+        outline.set_opacity(opacity)
+
+        inner = Line(
+            start=start,
+            end=end,
+            color=needle_color,
+            stroke_width=self.visual.needle_width,
+        )
+        inner.set_opacity(opacity)
+
+        return VGroup(outline, inner), crosses, crossing_point
+
+    def needle_color_for(self, crosses):
+        if crosses:
+            return self.visual.crossing_color
+
+        return self.visual.non_crossing_color
+
+    def length_marker(self, midpoint, angle):
+        start, end = self.geometry.needle_endpoints(midpoint, angle)
+        normal = LEFT * math.sin(angle) + UP * math.cos(angle)
+        offset = normal * 0.24
+
+        arrow = DoubleArrow(
+            start=start + offset,
+            end=end + offset,
+            buff=0.02,
+            color=WHITE,
+            stroke_width=2.0,
+            max_tip_length_to_length_ratio=0.24,
+        )
+
+        label = VGroup(
+            Text("довжина голки", font_size=20, color=WHITE),
+            MathTex("l", font_size=30, color=WHITE),
+        )
+        label.arrange(RIGHT, buff=0.18)
+        label.next_to(arrow, UP, buff=0.10)
+
+        return VGroup(arrow, label)
+
+    def stats_box(self, total_count, crossing_count):
+        probability = crossing_count / total_count
+        probability_text = self.decimal_text(probability, digits=5)
+
+        title = Text("Експеримент", font_size=21)
+        n_row = MathTex(
+            "N",
+            "=",
+            f"{total_count}",
+            font_size=27,
+            color=WHITE,
+        )
+        k_row = MathTex(
+            "K",
+            "=",
+            f"{crossing_count}",
+            font_size=27,
+            color=WHITE,
+        )
+        k_row[0].set_color(self.visual.crossing_color)
+        k_row[2].set_color(self.visual.crossing_color)
+
+        p_row = MathTex(
+            r"P_{\mathrm{exp}}",
+            r"\approx",
+            r"\frac{",
+            "K",
+            r"}{",
+            "N",
+            r"}",
+            "=",
+            probability_text,
+            font_size=26,
+            color=WHITE,
+        )
+        p_row[3].set_color(self.visual.crossing_color)
+
+        content = VGroup(title, n_row, k_row, p_row)
+        content.arrange(DOWN, aligned_edge=LEFT, buff=0.08)
+
+        background = RoundedRectangle(
+            width=self.visual.stats_box_width,
+            height=self.visual.stats_box_height,
+            corner_radius=0.08,
+            color=BLACK,
+            fill_color=BLACK,
+            fill_opacity=0.75,
+            stroke_opacity=0,
+        )
+        background.move_to(self.visual.stats_box_center)
+
+        content.move_to(background.get_center())
+        content.align_to(background, LEFT)
+        content.align_to(background, UP)
+        content.shift(RIGHT * 0.15 + DOWN * 0.13)
+
+        background.set_z_index(20)
+        content.set_z_index(21)
+
+        return VGroup(background, content)
+
+    def random_info_box(self):
+        content = VGroup(
+            Text("Кожен кидок випадковий", font_size=28, color=WHITE),
+            Text("випадкова позиція", font_size=22, color=WHITE),
+            Text("випадковий кут", font_size=22, color=WHITE),
+        )
+        content.arrange(DOWN, buff=0.12)
+
+        return self.center_box(content, min_width=4.8)
+
+    def many_needle_batch(self, batch_spec):
+        batch = VGroup()
+        throw_specs = self.geometry.random_throw_specs(
+            batch_spec.seed,
+            batch_spec.count,
+        )
+
+        for throw_spec in throw_specs:
+            needle, _, _ = self.needle(
+                throw_spec.midpoint,
+                throw_spec.angle,
+                opacity=batch_spec.opacity,
+            )
+            batch.add(needle)
+
+        return batch
+
+    def aligned_formula_row(
+        self,
+        left_tex,
+        middle_tex,
+        sign_tex,
+        value_tex,
+        y,
+        font_size=34,
+        sign_x=1.55,
+    ):
+        left = MathTex(left_tex, font_size=font_size, color=WHITE)
+        middle = MathTex(middle_tex, font_size=font_size, color=WHITE)
+        sign = MathTex(sign_tex, font_size=font_size, color=WHITE)
+        value = MathTex(value_tex, font_size=font_size, color=WHITE)
+
+        sign.move_to(RIGHT * sign_x + UP * y)
+        middle.next_to(sign, LEFT, buff=0.26)
+        left.next_to(middle, LEFT, buff=0.28)
+        value.next_to(sign, RIGHT, buff=0.22)
+
+        row = VGroup(left, middle, sign, value)
+        row.value_part = value
+        row.sign = sign
+
+        return row
+
+    def aligned_value_row(
+        self,
+        left_tex,
+        sign_tex,
+        value_tex,
+        y,
+        font_size=34,
+        sign_x=1.55,
+    ):
+        left = MathTex(left_tex, font_size=font_size, color=WHITE)
+        sign = MathTex(sign_tex, font_size=font_size, color=WHITE)
+        value = MathTex(value_tex, font_size=font_size, color=WHITE)
+
+        sign.move_to(RIGHT * sign_x + UP * y)
+        left.next_to(sign, LEFT, buff=0.28)
+        value.next_to(sign, RIGHT, buff=0.22)
+
+        row = VGroup(left, sign, value)
+        row.value_part = value
+        row.sign = sign
+
+        return row
 
 
 class BuffonNeedleExperimentScene(Scene):
     def construct(self):
-        # Scene parameters
-        d = 1.45
-        line_count = 5
-        line_len = 12.0
-        line_color = BLUE
-        title_size = 36
-
-        # Needle parameters
-        needle_len = d
-        half_needle_len = needle_len / 2
-        neutral_needle_color = WHITE
-        crossing_color = GREEN
-        non_crossing_color = RED
-        needle_width = 4
-        needle_outline_color = GRAY
-        needle_outline_width = 6
-
-        # Visual parameters
-        intersection_color = YELLOW
-        box_fill_opacity = 0.78
-        fast_drop_time = 0.22
-
-        # Final deterministic experiment values
-        final_total_count = 50000
-        final_crossing_count = 31831
-
-        # Derived values
-        half_line_len = line_len / 2
-        center_offset = (line_count - 1) / 2
-
-        def format_decimal(value, digits=5):
-            return f"{value:.{digits}f}".rstrip("0").rstrip(".")
-
-        def get_line_ys():
-            return [(i - center_offset) * d for i in range(line_count)]
-
-        def create_text_box(content, min_width=0, buff=0.22, fill_opacity=box_fill_opacity):
-            box_w = max(content.width + 2 * buff, min_width)
-            box_h = content.height + 2 * buff
-
-            background = RoundedRectangle(
-                width=box_w,
-                height=box_h,
-                corner_radius=0.08,
-                color=BLACK,
-                fill_color=BLACK,
-                fill_opacity=fill_opacity,
-                stroke_opacity=0,
-            )
-            background.move_to(content.get_center())
-
-            group = VGroup(background, content)
-            group.set_z_index(30)
-
-            return group
-
-        def create_center_box(content, min_width=0):
-            # Every black text box is centered at (0, 0),
-            # except the experiment counter.
-            content.move_to(ORIGIN)
-            return create_text_box(content, min_width=min_width)
-
-        def create_lines(line_ys):
-            lines = VGroup()
-
-            for line_y in line_ys:
-                line = Line(
-                    start=LEFT * half_line_len + UP * line_y,
-                    end=RIGHT * half_line_len + UP * line_y,
-                    color=line_color,
-                )
-                lines.add(line)
-
-            return lines
-
-        def create_distance_markers(line_ys):
-            markers = VGroup()
-            marker_xs = [-5.45, 5.45]
-
-            for marker_x in marker_xs:
-                for lower_y, upper_y in zip(line_ys[:-1], line_ys[1:]):
-                    arrow = DoubleArrow(
-                        start=RIGHT * marker_x + UP * lower_y,
-                        end=RIGHT * marker_x + UP * upper_y,
-                        buff=0.08,
-                        color=WHITE,
-                        stroke_width=2.0,
-                    )
-
-                    label = MathTex("d", font_size=28, color=WHITE)
-
-                    if marker_x < 0:
-                        label.next_to(arrow, LEFT, buff=0.08)
-                    else:
-                        label.next_to(arrow, RIGHT, buff=0.08)
-
-                    markers.add(VGroup(arrow, label))
-
-            return markers
-
-        def get_needle_endpoints(needle_mid, needle_angle):
-            direction = RIGHT * math.cos(needle_angle) + UP * math.sin(needle_angle)
-
-            needle_start = needle_mid - half_needle_len * direction
-            needle_end = needle_mid + half_needle_len * direction
-
-            return needle_start, needle_end
-
-        def get_crossing_data(needle_mid, needle_angle):
-            needle_start, needle_end = get_needle_endpoints(needle_mid, needle_angle)
-
-            y1 = needle_start[1]
-            y2 = needle_end[1]
-
-            lower_y = min(y1, y2)
-            upper_y = max(y1, y2)
-
-            if abs(y2 - y1) < 1e-9:
-                return False, None
-
-            for line_y in line_ys:
-                if lower_y <= line_y <= upper_y:
-                    t = (line_y - y1) / (y2 - y1)
-                    x = needle_start[0] + t * (needle_end[0] - needle_start[0])
-                    crossing_point = RIGHT * x + UP * line_y
-
-                    return True, crossing_point
-
-            return False, None
-
-        def create_needle(needle_mid, needle_angle, needle_color=None, opacity=1.0):
-            needle_start, needle_end = get_needle_endpoints(needle_mid, needle_angle)
-            crosses, crossing_point = get_crossing_data(needle_mid, needle_angle)
-
-            if needle_color is None:
-                if crosses:
-                    needle_color = crossing_color
-                else:
-                    needle_color = non_crossing_color
-
-            needle_outline = Line(
-                start=needle_start,
-                end=needle_end,
-                color=needle_outline_color,
-                stroke_width=needle_outline_width,
-            )
-            needle_outline.set_opacity(opacity)
-
-            needle_inner = Line(
-                start=needle_start,
-                end=needle_end,
-                color=needle_color,
-                stroke_width=needle_width,
-            )
-            needle_inner.set_opacity(opacity)
-
-            needle = VGroup(needle_outline, needle_inner)
-
-            return needle, crosses, crossing_point
-
-        def create_length_marker(needle_mid, needle_angle):
-            needle_start, needle_end = get_needle_endpoints(needle_mid, needle_angle)
-
-            normal = LEFT * math.sin(needle_angle) + UP * math.cos(needle_angle)
-            offset = normal * 0.24
-
-            arrow = DoubleArrow(
-                start=needle_start + offset,
-                end=needle_end + offset,
-                buff=0.02,
-                color=WHITE,
-                stroke_width=2.0,
-                max_tip_length_to_length_ratio=0.24,
-            )
-
-            label = VGroup(
-                Text("needle length", font_size=20, color=WHITE),
-                MathTex("l", font_size=30, color=WHITE),
-            )
-            label.arrange(RIGHT, buff=0.18)
-            label.next_to(arrow, UP, buff=0.10)
-
-            return VGroup(arrow, label)
-
-        def create_stats(total_count, crossing_count):
-            probability = crossing_count / total_count
-            probability_text = format_decimal(probability, digits=5)
-
-            title_text = Text("Experiment", font_size=21)
-
-            n_row = MathTex("N", "=", f"{total_count}", font_size=27, color=WHITE)
-
-            k_row = MathTex("K", "=", f"{crossing_count}", font_size=27, color=WHITE)
-            k_row[0].set_color(crossing_color)
-            k_row[2].set_color(crossing_color)
-
-            p_row = MathTex(
-                r"P_{\mathrm{exp}}",
-                r"\approx",
-                r"\frac{",
-                "K",
-                r"}{",
-                "N",
-                r"}",
-                "=",
-                probability_text,
-                font_size=26,
-                color=WHITE,
-            )
-            p_row[3].set_color(crossing_color)
-
-            content = VGroup(title_text, n_row, k_row, p_row)
-            content.arrange(DOWN, aligned_edge=LEFT, buff=0.08)
-
-            box_w = 3.15
-            box_h = 1.74
-            box_center = RIGHT * 4.42 + UP * 2.18
-
-            background = RoundedRectangle(
-                width=box_w,
-                height=box_h,
-                corner_radius=0.08,
-                color=BLACK,
-                fill_color=BLACK,
-                fill_opacity=0.75,
-                stroke_opacity=0,
-            )
-            background.move_to(box_center)
-
-            content.move_to(background.get_center())
-            content.align_to(background, LEFT)
-            content.align_to(background, UP)
-            content.shift(RIGHT * 0.15 + DOWN * 0.13)
-
-            background.set_z_index(20)
-            content.set_z_index(21)
-
-            return VGroup(background, content)
-
-        def create_random_text_box():
-            content = VGroup(
-                Text("Each throw is random", font_size=28, color=WHITE),
-                Text("random position", font_size=22, color=WHITE),
-                Text("random angle", font_size=22, color=WHITE),
-            )
-            content.arrange(DOWN, buff=0.12)
-            return create_center_box(content, min_width=4.8)
-
-        def play_random_throw(needle, needle_mid, needle_angle, show_info_text=False):
-            info_box = None
-
-            if show_info_text:
-                info_box = create_random_text_box()
-                self.play(FadeIn(info_box), run_time=0.45)
-                self.wait(1.25)
-
-            # 1. Random position: shown as a slowly moving dot.
-            position_points = [
-                LEFT * 4.6 + UP * 0.4,
-                RIGHT * 2.8 + DOWN * 1.1,
-                LEFT * 1.3 + DOWN * 2.0,
-                needle_mid,
-            ]
-
-            dot = Dot(position_points[0], radius=0.06, color=YELLOW)
-            dot.set_z_index(25)
-
-            self.play(FadeIn(dot), run_time=0.35)
-
-            for position_point in position_points[1:]:
-                self.play(
-                    dot.animate.move_to(position_point),
-                    run_time=0.72,
-                )
-
-            self.wait(0.20)
-
-            # 2. Random angle.
-            # Important: the preview needle is rotated as one rigid object.
-            # This keeps its length exactly equal to l during the whole animation.
-            start_angle = 0
-            preview, _, _ = create_needle(
-                needle_mid,
-                start_angle,
-                needle_color=neutral_needle_color,
-                opacity=0.75,
-            )
-            preview.set_z_index(12)
-
-            self.play(
-                FadeOut(dot),
-                FadeIn(preview),
-                run_time=0.35,
-            )
-
-            current_angle = start_angle
-            angle_sequence = [PI / 3, -PI / 5, needle_angle]
-
-            for target_angle in angle_sequence:
-                self.play(
-                    Rotate(
-                        preview,
-                        angle=target_angle - current_angle,
-                        about_point=needle_mid,
-                    ),
-                    run_time=0.72,
-                )
-                current_angle = target_angle
-
-            needle.set_z_index(12)
-
-            animations = [ReplacementTransform(preview, needle)]
-
-            if info_box is not None:
-                animations.append(FadeOut(info_box))
-
-            self.play(*animations, run_time=0.42)
-
-        def show_result(needle, crosses, crossing_point):
-            if crosses:
-                result_color = crossing_color
-                result_text = "crossing"
-            else:
-                result_color = non_crossing_color
-                result_text = "no crossing"
-
-            label = Text(result_text, font_size=28, color=result_color)
-            label_box = create_center_box(label, min_width=2.9)
-
-            self.play(
-                needle[1].animate.set_color(result_color),
-                run_time=0.35,
-            )
-
-            self.play(FadeIn(label_box), run_time=0.35)
-
-            if crosses:
-                point = Dot(crossing_point, radius=0.07, color=intersection_color)
-                point.set_z_index(25)
-
-                ring = Circle(radius=0.18, color=intersection_color, stroke_width=3)
-                ring.move_to(crossing_point)
-                ring.set_z_index(25)
-
-                self.play(
-                    GrowFromCenter(point),
-                    Create(ring),
-                    run_time=0.4,
-                )
-
-                self.wait(0.65)
-
-                self.play(
-                    Indicate(ring, color=intersection_color),
-                    run_time=0.7,
-                )
-
-                self.play(
-                    FadeOut(point),
-                    FadeOut(ring),
-                    run_time=0.25,
-                )
-            else:
-                self.wait(0.8)
-
-            self.play(FadeOut(label_box), run_time=0.3)
-
-        def make_many_throw_batch(seed, count):
-            rng = random.Random(seed)
-            data = []
-
-            for _ in range(count):
-                x = rng.uniform(-5.25, 5.15)
-                y = rng.uniform(-2.55, 2.55)
-                angle = rng.uniform(-PI / 2.15, PI / 2.15)
-                data.append((RIGHT * x + UP * y, angle))
-
-            return data
-
-        def create_many_throw_batch(seed, count, opacity=0.22):
-            batch = VGroup()
-
-            for needle_mid, needle_angle in make_many_throw_batch(seed, count):
-                needle, _, _ = create_needle(
-                    needle_mid,
-                    needle_angle,
-                    opacity=opacity,
-                )
-                batch.add(needle)
-
-            return batch
-
-        def create_aligned_formula_row(
-            left_tex,
-            middle_tex,
-            sign_tex,
-            value_tex,
-            y,
-            font_size=34,
-            sign_x=1.55,
-        ):
-            left = MathTex(left_tex, font_size=font_size, color=WHITE)
-            middle = MathTex(middle_tex, font_size=font_size, color=WHITE)
-            sign = MathTex(sign_tex, font_size=font_size, color=WHITE)
-            value = MathTex(value_tex, font_size=font_size, color=WHITE)
-
-            sign.move_to(RIGHT * sign_x + UP * y)
-            middle.next_to(sign, LEFT, buff=0.26)
-            left.next_to(middle, LEFT, buff=0.28)
-            value.next_to(sign, RIGHT, buff=0.22)
-
-            row = VGroup(left, middle, sign, value)
-            row.value_part = value
-            row.sign = sign
-
-            return row
-
-        def create_aligned_value_row(
-            left_tex,
-            sign_tex,
-            value_tex,
-            y,
-            font_size=34,
-            sign_x=1.55,
-        ):
-            left = MathTex(left_tex, font_size=font_size, color=WHITE)
-            sign = MathTex(sign_tex, font_size=font_size, color=WHITE)
-            value = MathTex(value_tex, font_size=font_size, color=WHITE)
-
-            sign.move_to(RIGHT * sign_x + UP * y)
-            left.next_to(sign, LEFT, buff=0.28)
-            value.next_to(sign, RIGHT, buff=0.22)
-
-            row = VGroup(left, sign, value)
-            row.value_part = value
-            row.sign = sign
-
-            return row
-
-        line_ys = get_line_ys()
-        lines = create_lines(line_ys)
-        distance_markers = create_distance_markers(line_ys)
-
-        title = Text("Buffon's needle experiment", font_size=title_size)
+        self.board = BoardConfig()
+        self.visual = VisualConfig()
+        self.experiment = ExperimentConfig()
+
+        self.geometry = BuffonGeometry(self.board)
+        self.factory = BuffonMobjectFactory(
+            self.board,
+            self.visual,
+            self.geometry,
+        )
+
+        self.title = self.create_title()
+        self.lines = self.factory.lines()
+        self.distance_markers = self.factory.distance_markers()
+        self.visible_needles = VGroup()
+
+        self.visible_records = self.create_visible_records()
+        self.many_batches = self.create_many_batches()
+
+        self.play_title()
+        self.play_floor_intro()
+        self.play_parallel_lines()
+        self.play_distance_markers()
+        self.play_length_condition()
+
+        counts = ExperimentCounts()
+        stats = self.play_first_two_throws(counts)
+        self.play_visible_throw_series(stats, counts)
+        self.play_many_random_throws(stats)
+        self.play_final_result()
+        self.play_pi_tease(stats)
+
+    def create_title(self):
+        title = Text(
+            "Експеримент з голкою Бюффона",
+            font_size=self.visual.title_font_size,
+        )
         title.to_edge(UP)
 
-        # Sample needle for l and d comparison. This is not counted as a throw.
-        sample_mid = LEFT * 0.6 + UP * 0.75
-        sample_angle = PI / 6
-        sample_needle, _, _ = create_needle(
-            sample_mid,
-            sample_angle,
-            needle_color=neutral_needle_color,
-        )
-        sample_length_marker = create_length_marker(sample_mid, sample_angle)
+        return title
 
-        condition_content = VGroup(
-            Text("In this experiment:", font_size=25, color=WHITE),
-            MathTex("l", "=", "d", font_size=40, color=WHITE),
-        )
-        condition_content.arrange(DOWN, buff=0.10)
-        condition_box = create_center_box(condition_content, min_width=3.9)
+    def create_visible_records(self):
+        records = []
 
-        # Visible throws: first is no crossing, second is crossing.
-        visible_throw_data = [
-            (LEFT * 4.3 + UP * 2.23, PI / 10),
-            (LEFT * 2.2 + UP * 1.25, -PI / 2.7),
-            (RIGHT * 0.5 + DOWN * 0.35, PI / 4.0),
-            (RIGHT * 3.2 + UP * 0.25, -PI / 3.0),
-            (LEFT * 4.7 + DOWN * 1.15, PI / 8.0),
-            (RIGHT * 2.0 + DOWN * 2.18, -PI / 6.0),
-            (LEFT * 0.7 + UP * 2.62, PI / 2.9),
-            (RIGHT * 4.6 + DOWN * 0.55, -PI / 5.5),
-            (LEFT * 3.3 + DOWN * 2.30, PI / 3.6),
-            (RIGHT * 0.1 + UP * 0.28, -PI / 8.0),
-            (LEFT * 1.6 + DOWN * 0.90, PI / 2.8),
-            (RIGHT * 5.1 + UP * 1.85, -PI / 7.0),
-        ]
-
-        visible_throw_records = []
-
-        for index, (needle_mid, needle_angle) in enumerate(visible_throw_data):
-            needle_color = neutral_needle_color if index < 2 else None
-
-            needle, crosses, crossing_point = create_needle(
-                needle_mid,
-                needle_angle,
+        for index, throw_spec in enumerate(self.experiment.visible_throws):
+            needle_color = self.visible_needle_color(index)
+            needle, crosses, crossing_point = self.factory.needle(
+                throw_spec.midpoint,
+                throw_spec.angle,
                 needle_color=needle_color,
             )
-            visible_throw_records.append((needle, crosses, crossing_point, needle_mid, needle_angle))
 
-        many_batches = [
-            create_many_throw_batch(seed=11, count=14, opacity=0.21),
-            create_many_throw_batch(seed=22, count=16, opacity=0.19),
-            create_many_throw_batch(seed=33, count=18, opacity=0.17),
-            create_many_throw_batch(seed=44, count=22, opacity=0.15),
+            record = NeedleRecord(
+                needle=needle,
+                crosses=crosses,
+                crossing_point=crossing_point,
+                midpoint=throw_spec.midpoint,
+                angle=throw_spec.angle,
+            )
+            records.append(record)
+
+        return records
+
+    def visible_needle_color(self, index):
+        if index < 2:
+            return self.visual.neutral_needle_color
+
+        return None
+
+    def create_many_batches(self):
+        return [
+            self.factory.many_needle_batch(batch_spec)
+            for batch_spec in self.experiment.batch_specs
         ]
 
-        visible_needles = VGroup()
-
-        # 1. Title
-        self.play(Write(title), run_time=0.8)
+    def play_title(self):
+        self.play(Write(self.title), run_time=0.8)
         self.wait(0.3)
 
-        # 1.1. Infinite-floor assumption
-        floor_intro = VGroup(
-            Text("Infinite floor", font_size=30, color=WHITE),
-            Text("equally spaced parallel lines", font_size=28, color=WHITE),
+    def play_floor_intro(self):
+        content = VGroup(
+            Text("Нескінченна підлога", font_size=30, color=WHITE),
+            Text(
+                "рівновіддалені паралельні прямі",
+                font_size=28,
+                color=WHITE,
+            ),
         )
-        floor_intro.arrange(DOWN, buff=0.12)
-        floor_intro_box = create_center_box(floor_intro, min_width=6.4)
+        content.arrange(DOWN, buff=0.12)
 
-        self.play(
-            FadeIn(floor_intro_box),
-            run_time=0.55,
-        )
+        floor_intro_box = self.factory.center_box(content, min_width=6.4)
+
+        self.play(FadeIn(floor_intro_box), run_time=0.55)
         self.wait(1.4)
+        self.play(FadeOut(floor_intro_box), run_time=0.4)
 
-        self.play(
-            FadeOut(floor_intro_box),
-            run_time=0.4,
-        )
-
-        # 2. Parallel lines
+    def play_parallel_lines(self):
         self.play(
             AnimationGroup(
-                *[Create(line) for line in lines],
+                *[Create(line) for line in self.lines],
                 lag_ratio=0,
             ),
             run_time=1.0,
         )
         self.wait(0.35)
 
-        # 3. Distance d
+    def play_distance_markers(self):
         self.play(
             AnimationGroup(
-                *[Create(marker) for marker in distance_markers],
+                *[Create(marker) for marker in self.distance_markers],
                 lag_ratio=0,
             ),
             run_time=1.0,
         )
         self.wait(1.2)
 
-        # 4-5. Needle length l and condition l = d
+    def play_length_condition(self):
+        midpoint = LEFT * 0.6 + UP * 0.75
+        angle = PI / 6
+
+        sample_needle, _, _ = self.factory.needle(
+            midpoint,
+            angle,
+            needle_color=self.visual.neutral_needle_color,
+        )
+        length_marker = self.factory.length_marker(midpoint, angle)
+        condition_box = self.create_length_condition_box()
+
         self.play(
             FadeIn(sample_needle, shift=DOWN * 0.25),
             run_time=0.8,
         )
         self.play(
-            FadeIn(sample_length_marker),
+            FadeIn(length_marker),
             FadeIn(condition_box),
             run_time=0.65,
         )
         self.wait(1.7)
 
         self.play(
-            FadeOut(sample_length_marker),
+            FadeOut(length_marker),
             FadeOut(condition_box),
             FadeOut(sample_needle),
-            FadeOut(distance_markers),
+            FadeOut(self.distance_markers),
             run_time=0.55,
         )
         self.wait(0.25)
 
-        total_count = 0
-        crossing_count = 0
+    def create_length_condition_box(self):
+        content = VGroup(
+            Text("У цьому експерименті:", font_size=25, color=WHITE),
+            MathTex("l", "=", "d", font_size=40, color=WHITE),
+        )
+        content.arrange(DOWN, buff=0.10)
 
-        # 6-7. Randomness and first throw: no crossing
-        first_needle, first_crosses, first_crossing_point, first_mid, first_angle = visible_throw_records[0]
-        play_random_throw(first_needle, first_mid, first_angle, show_info_text=True)
-        visible_needles.add(first_needle)
+        return self.factory.center_box(content, min_width=3.9)
 
-        show_result(first_needle, first_crosses, first_crossing_point)
+    def play_first_two_throws(self, counts):
+        first_record = self.visible_records[0]
+        self.play_random_throw(first_record, show_info_text=True)
+        self.show_throw_result(first_record)
+        self.register_visible_throw(first_record, counts)
 
-        total_count += 1
-        if first_crosses:
-            crossing_count += 1
+        second_record = self.visible_records[1]
+        self.play_random_throw(second_record, show_info_text=False)
+        self.show_throw_result(second_record)
+        self.register_visible_throw(second_record, counts)
 
-        # 8. Second throw: crossing. No repeated randomness text.
-        second_needle, second_crosses, second_crossing_point, second_mid, second_angle = visible_throw_records[1]
-        play_random_throw(second_needle, second_mid, second_angle, show_info_text=False)
-        visible_needles.add(second_needle)
-
-        show_result(second_needle, second_crosses, second_crossing_point)
-
-        total_count += 1
-        if second_crosses:
-            crossing_count += 1
-
-        # 9. Counter
-        stats = create_stats(total_count, crossing_count)
+        stats = self.factory.stats_box(counts.total, counts.crossing)
 
         self.play(FadeIn(stats), run_time=0.65)
         self.wait(0.55)
 
-        # 10. Short visible random-looking series
-        for needle, crosses, crossing_point, _, _ in visible_throw_records[2:]:
+        return stats
+
+    def play_random_throw(self, record, show_info_text=False):
+        info_box = self.optional_random_info_box(show_info_text)
+        dot = self.play_random_position(record.midpoint)
+        preview = self.play_random_angle_preview(dot, record)
+
+        record.needle.set_z_index(12)
+        animations = [ReplacementTransform(preview, record.needle)]
+
+        if info_box is not None:
+            animations.append(FadeOut(info_box))
+
+        self.play(*animations, run_time=0.42)
+
+    def optional_random_info_box(self, show_info_text):
+        if not show_info_text:
+            return None
+
+        info_box = self.factory.random_info_box()
+
+        self.play(FadeIn(info_box), run_time=0.45)
+        self.wait(1.25)
+
+        return info_box
+
+    def play_random_position(self, final_midpoint):
+        position_points = [
+            LEFT * 4.6 + UP * 0.4,
+            RIGHT * 2.8 + DOWN * 1.1,
+            LEFT * 1.3 + DOWN * 2.0,
+            final_midpoint,
+        ]
+
+        dot = Dot(position_points[0], radius=0.06, color=YELLOW)
+        dot.set_z_index(25)
+
+        self.play(FadeIn(dot), run_time=0.35)
+
+        for point in position_points[1:]:
+            self.play(dot.animate.move_to(point), run_time=0.72)
+
+        self.wait(0.20)
+
+        return dot
+
+    def play_random_angle_preview(self, dot, record):
+        start_angle = 0
+        preview, _, _ = self.factory.needle(
+            record.midpoint,
+            start_angle,
+            needle_color=self.visual.neutral_needle_color,
+            opacity=0.75,
+        )
+        preview.set_z_index(12)
+
+        self.play(
+            FadeOut(dot),
+            FadeIn(preview),
+            run_time=0.35,
+        )
+
+        self.rotate_preview_to_final_angle(
+            preview,
+            record.midpoint,
+            record.angle,
+        )
+
+        return preview
+
+    def rotate_preview_to_final_angle(self, preview, midpoint, final_angle):
+        current_angle = 0
+        angle_sequence = [PI / 3, -PI / 5, final_angle]
+
+        for target_angle in angle_sequence:
             self.play(
-                FadeIn(needle, shift=DOWN * 0.20),
-                run_time=fast_drop_time,
+                Rotate(
+                    preview,
+                    angle=target_angle - current_angle,
+                    about_point=midpoint,
+                ),
+                run_time=0.72,
             )
-            visible_needles.add(needle)
+            current_angle = target_angle
 
-            total_count += 1
-            if crosses:
-                crossing_count += 1
+    def show_throw_result(self, record):
+        result_color = self.result_color(record.crosses)
+        result_text = self.result_text(record.crosses)
 
-            new_stats = create_stats(total_count, crossing_count)
+        label = Text(result_text, font_size=28, color=result_color)
+        label_box = self.factory.center_box(label, min_width=2.9)
 
+        self.play(
+            record.needle[1].animate.set_color(result_color),
+            run_time=0.35,
+        )
+        self.play(FadeIn(label_box), run_time=0.35)
+
+        if record.crosses:
+            self.highlight_crossing_point(record.crossing_point)
+        else:
+            self.wait(0.8)
+
+        self.play(FadeOut(label_box), run_time=0.3)
+
+    def result_color(self, crosses):
+        if crosses:
+            return self.visual.crossing_color
+
+        return self.visual.non_crossing_color
+
+    def result_text(self, crosses):
+        if crosses:
+            return "є перетин"
+
+        return "немає перетину"
+
+    def highlight_crossing_point(self, crossing_point):
+        point = Dot(
+            crossing_point,
+            radius=0.07,
+            color=self.visual.intersection_color,
+        )
+        point.set_z_index(25)
+
+        ring = Circle(
+            radius=0.18,
+            color=self.visual.intersection_color,
+            stroke_width=3,
+        )
+        ring.move_to(crossing_point)
+        ring.set_z_index(25)
+
+        self.play(
+            GrowFromCenter(point),
+            Create(ring),
+            run_time=0.4,
+        )
+        self.wait(0.65)
+
+        self.play(
+            Indicate(ring, color=self.visual.intersection_color),
+            run_time=0.7,
+        )
+        self.play(
+            FadeOut(point),
+            FadeOut(ring),
+            run_time=0.25,
+        )
+
+    def register_visible_throw(self, record, counts):
+        self.visible_needles.add(record.needle)
+        counts.add_throw(record.crosses)
+
+    def play_visible_throw_series(self, stats, counts):
+        for record in self.visible_records[2:]:
             self.play(
-                Transform(stats, new_stats),
-                run_time=0.24,
+                FadeIn(record.needle, shift=DOWN * 0.20),
+                run_time=self.visual.fast_drop_time,
             )
+
+            self.register_visible_throw(record, counts)
+            new_stats = self.factory.stats_box(
+                counts.total,
+                counts.crossing,
+            )
+
+            self.play(Transform(stats, new_stats), run_time=0.24)
 
         self.wait(0.4)
 
-        # 11. Small sample is noisy
-        noisy_text = Text("A small sample is noisy.", font_size=30, color=WHITE)
-        noisy_box = create_center_box(noisy_text, min_width=4.8)
+    def play_many_random_throws(self, stats):
+        self.play_small_sample_note()
+        self.play_repeat_note()
 
-        self.play(FadeIn(noisy_box), run_time=0.45)
+        for batch, batch_spec in zip(
+            self.many_batches,
+            self.experiment.batch_specs,
+        ):
+            self.play_many_batch(batch)
+            self.update_stats_after_batch(stats, batch_spec)
+
+    def play_small_sample_note(self):
+        text = Text("Мала вибірка шумна.", font_size=30, color=WHITE)
+        text_box = self.factory.center_box(text, min_width=4.8)
+
+        self.play(FadeIn(text_box), run_time=0.45)
         self.wait(1.35)
-        self.play(FadeOut(noisy_box), run_time=0.35)
+        self.play(FadeOut(text_box), run_time=0.35)
 
-        # 12. Many random throws
-        repeat_text = Text("Now repeat randomly many times.", font_size=30, color=WHITE)
-        repeat_box = create_center_box(repeat_text, min_width=6.1)
+    def play_repeat_note(self):
+        text = Text(
+            "Тепер повторимо випадково багато разів.",
+            font_size=30,
+            color=WHITE,
+        )
+        text_box = self.factory.center_box(text, min_width=6.1)
 
-        self.play(FadeIn(repeat_box), run_time=0.45)
+        self.play(FadeIn(text_box), run_time=0.45)
         self.wait(1.0)
 
         self.play(
-            FadeOut(repeat_box),
-            visible_needles.animate.set_opacity(0.36),
+            FadeOut(text_box),
+            self.visible_needles.animate.set_opacity(0.36),
             run_time=0.55,
         )
 
-        many_throw_stats = [
-            (100, 64),
-            (1000, 637),
-            (5000, 3183),
-            (final_total_count, final_crossing_count),
-        ]
+    def play_many_batch(self, batch):
+        self.play(
+            AnimationGroup(
+                *[
+                    FadeIn(needle, shift=DOWN * 0.08)
+                    for needle in batch
+                ],
+                lag_ratio=0.02,
+            ),
+            run_time=0.85,
+        )
 
-        for batch, (total_count, crossing_count) in zip(many_batches, many_throw_stats):
-            self.play(
-                AnimationGroup(
-                    *[FadeIn(needle, shift=DOWN * 0.08) for needle in batch],
-                    lag_ratio=0.02,
-                ),
-                run_time=0.85,
-            )
+    def update_stats_after_batch(self, stats, batch_spec):
+        new_stats = self.factory.stats_box(
+            batch_spec.total_after,
+            batch_spec.crossing_after,
+        )
 
-            new_stats = create_stats(total_count, crossing_count)
+        self.play(Transform(stats, new_stats), run_time=0.65)
+        self.bring_to_front(stats)
+        self.wait(0.35)
 
-            self.play(
-                Transform(stats, new_stats),
-                run_time=0.65,
-            )
-            self.bring_to_front(stats)
-            self.wait(0.35)
+    def play_final_result(self):
+        final_result_box = self.create_final_result_box()
 
-        # 13. Final experiment result
-        final_p = final_crossing_count / final_total_count
-        final_result_content = VGroup(
-            Text("After many random throws:", font_size=27, color=WHITE),
+        self.play(FadeIn(final_result_box), run_time=0.6)
+        self.wait(3.1)
+
+        self.final_result_box = final_result_box
+
+    def create_final_result_box(self):
+        final_probability = (
+            self.experiment.final_crossing_count
+            / self.experiment.final_total_count
+        )
+
+        result = VGroup(
+            Text(
+                "Після багатьох випадкових кидків:",
+                font_size=27,
+                color=WHITE,
+            ),
             MathTex(
                 "N",
                 "=",
-                str(final_total_count),
+                str(self.experiment.final_total_count),
                 r"\qquad",
                 "K",
                 "=",
-                str(final_crossing_count),
+                str(self.experiment.final_crossing_count),
                 font_size=34,
                 color=WHITE,
             ),
@@ -687,20 +889,43 @@ class BuffonNeedleExperimentScene(Scene):
                 "=",
                 r"\frac{K}{N}",
                 r"\approx",
-                f"{format_decimal(final_p, digits=5)}\\ldots",
+                f"{self.factory.decimal_text(final_probability)}\\ldots",
                 font_size=36,
                 color=WHITE,
             ),
         )
-        final_result_content[1][4].set_color(crossing_color)
-        final_result_content[1][6].set_color(crossing_color)
-        final_result_content.arrange(DOWN, buff=0.18)
-        final_result_box = create_center_box(final_result_content, min_width=6.7)
+        result[1][4].set_color(self.visual.crossing_color)
+        result[1][6].set_color(self.visual.crossing_color)
+        result.arrange(DOWN, buff=0.18)
 
-        self.play(FadeIn(final_result_box), run_time=0.6)
-        self.wait(3.1)
+        return self.factory.center_box(result, min_width=6.7)
 
-        # 14. Pi tease formula scene
+    def play_pi_tease(self, stats):
+        dim_layer = self.create_dim_layer()
+
+        self.play(
+            FadeOut(self.final_result_box),
+            FadeIn(dim_layer),
+            run_time=0.6,
+        )
+
+        row1, row2, row3, pi_row = self.create_pi_rows()
+        self.write_pi_rows(row1, row2, row3, pi_row)
+        self.highlight_matching_values(row3, pi_row)
+
+        eq_start = self.transform_rows_to_pi_relation(
+            row1,
+            row2,
+            row3,
+            pi_row,
+        )
+        eq_mid = self.simplify_pi_relation(eq_start)
+        eq_result = self.solve_for_probability(eq_mid)
+
+        final_group = self.show_final_questions(eq_result)
+        self.fade_out_everything(stats, dim_layer, final_group)
+
+    def create_dim_layer(self):
         dim_layer = Rectangle(
             width=14.5,
             height=8.3,
@@ -711,45 +936,35 @@ class BuffonNeedleExperimentScene(Scene):
         )
         dim_layer.set_z_index(40)
 
-        self.play(
-            FadeOut(final_result_box),
-            FadeIn(dim_layer),
-            run_time=0.6,
-        )
+        return dim_layer
 
-        row1 = create_aligned_formula_row(
+    def create_pi_rows(self):
+        row1 = self.factory.aligned_formula_row(
             r"P_{\mathrm{exp}}",
             r"=\frac{K}{N}",
             r"\approx",
             r"0.63662\ldots",
             y=1.65,
-            font_size=34,
         )
-
-        row2 = create_aligned_formula_row(
+        row2 = self.factory.aligned_formula_row(
             r"\frac{1}{P_{\mathrm{exp}}}",
             r"=\frac{N}{K}",
             r"\approx",
             r"1.57079\ldots",
             y=0.55,
-            font_size=34,
         )
-
-        row3 = create_aligned_formula_row(
+        row3 = self.factory.aligned_formula_row(
             r"\frac{2}{P_{\mathrm{exp}}}",
             r"=\frac{2N}{K}",
             r"\approx",
             r"3.14159\ldots",
             y=-0.55,
-            font_size=34,
         )
-
-        pi_row = create_aligned_value_row(
+        pi_row = self.factory.aligned_value_row(
             r"\pi",
             r"\approx",
             r"3.14159\ldots",
             y=-1.65,
-            font_size=34,
         )
         pi_row[0].set_color(RED)
 
@@ -757,10 +972,14 @@ class BuffonNeedleExperimentScene(Scene):
         formula_rows.move_to(ORIGIN)
         formula_rows.set_z_index(45)
 
-        for row in [row1, row2, row3, pi_row]:
+        return row1, row2, row3, pi_row
+
+    def write_pi_rows(self, *rows):
+        for row in rows:
             self.play(Write(row), run_time=0.95)
             self.wait(0.55)
 
+    def highlight_matching_values(self, row3, pi_row):
         row3_highlight = SurroundingRectangle(
             row3.value_part,
             color=YELLOW,
@@ -774,8 +993,8 @@ class BuffonNeedleExperimentScene(Scene):
             stroke_width=3,
         )
 
-        highlights = VGroup(row3_highlight, pi_highlight)
-        highlights.set_z_index(46)
+        self.value_highlights = VGroup(row3_highlight, pi_highlight)
+        self.value_highlights.set_z_index(46)
 
         self.play(
             Create(row3_highlight),
@@ -784,6 +1003,7 @@ class BuffonNeedleExperimentScene(Scene):
         )
         self.wait(1.15)
 
+    def transform_rows_to_pi_relation(self, row1, row2, row3, pi_row):
         eq_start = MathTex(
             r"\frac{2}{P_{\mathrm{exp}}}",
             "=",
@@ -801,12 +1021,15 @@ class BuffonNeedleExperimentScene(Scene):
             FadeOut(row1),
             FadeOut(row2),
             FadeOut(pi_row),
-            FadeOut(highlights),
+            FadeOut(self.value_highlights),
             ReplacementTransform(row3, eq_start),
             run_time=0.9,
         )
         self.wait(0.85)
 
+        return eq_start
+
+    def simplify_pi_relation(self, eq_start):
         eq_mid = MathTex(
             r"\frac{2}{P_{\mathrm{exp}}}",
             r"\approx",
@@ -824,6 +1047,9 @@ class BuffonNeedleExperimentScene(Scene):
         )
         self.wait(0.75)
 
+        return eq_mid
+
+    def solve_for_probability(self, eq_mid):
         eq_result = MathTex(
             "P",
             r"\approx",
@@ -843,41 +1069,17 @@ class BuffonNeedleExperimentScene(Scene):
         )
         self.wait(0.9)
 
-        # Final layout:
-        # - P ≈ 2/pi slightly above the center
-        # - left question below-left
-        # - right question below-right
-        # - proof prompt below the center
+        return eq_result
+
+    def show_final_questions(self, eq_result):
         eq_result.generate_target()
         eq_result.target.move_to(UP * 0.75)
 
-        left_question = VGroup(
-            Text("What is", font_size=32, color=WHITE),
-            MathTex(r"\pi", font_size=40, color=RED),
-            Text("doing here?", font_size=32, color=WHITE),
-        )
-        left_question.arrange(RIGHT, buff=0.12)
-        left_question.move_to(LEFT * 2.85 + DOWN * 0.75)
-        left_question.set_z_index(48)
+        left_question = self.create_left_final_question()
+        right_question = self.create_right_final_question()
+        proof_prompt = self.create_proof_prompt()
 
-        right_question = VGroup(
-            Text("What if", font_size=32, color=WHITE),
-            MathTex("l", "<", "d", font_size=40, color=WHITE),
-            Text("?", font_size=32, color=WHITE),
-        )
-        right_question.arrange(RIGHT, buff=0.12)
-        right_question.move_to(RIGHT * 2.85 + DOWN * 0.75)
-        right_question.set_z_index(48)
-
-        proof_prompt = Text(
-            "Now we need a proof.",
-            font_size=34,
-            color=WHITE,
-        )
-        proof_prompt.move_to(DOWN * 2.0)
-        proof_prompt.set_z_index(48)
-
-        final_message_group = VGroup(
+        final_group = VGroup(
             eq_result,
             left_question,
             right_question,
@@ -893,14 +1095,52 @@ class BuffonNeedleExperimentScene(Scene):
         )
         self.wait(2.6)
 
+        return final_group
+
+    def create_left_final_question(self):
+        question = VGroup(
+            Text("Звідки тут", font_size=32, color=WHITE),
+            MathTex(r"\pi", font_size=40, color=RED),
+            Text("?", font_size=32, color=WHITE),
+        )
+        question.arrange(RIGHT, buff=0.12)
+        question.move_to(LEFT * 2.85 + DOWN * 0.75)
+        question.set_z_index(48)
+
+        return question
+
+    def create_right_final_question(self):
+        question = VGroup(
+            Text("А якщо", font_size=32, color=WHITE),
+            MathTex("l", "<", "d", font_size=40, color=WHITE),
+            Text("?", font_size=32, color=WHITE),
+        )
+        question.arrange(RIGHT, buff=0.12)
+        question.move_to(RIGHT * 2.85 + DOWN * 0.75)
+        question.set_z_index(48)
+
+        return question
+
+    def create_proof_prompt(self):
+        proof_prompt = Text(
+            "Тепер потрібне доведення.",
+            font_size=34,
+            color=WHITE,
+        )
+        proof_prompt.move_to(DOWN * 2.0)
+        proof_prompt.set_z_index(48)
+
+        return proof_prompt
+
+    def fade_out_everything(self, stats, dim_layer, final_group):
         self.play(
-            FadeOut(final_message_group),
+            FadeOut(final_group),
             FadeOut(dim_layer),
             FadeOut(stats),
-            FadeOut(visible_needles),
-            *[FadeOut(batch) for batch in many_batches],
-            FadeOut(lines),
-            FadeOut(title),
+            FadeOut(self.visible_needles),
+            *[FadeOut(batch) for batch in self.many_batches],
+            FadeOut(self.lines),
+            FadeOut(self.title),
             run_time=0.85,
         )
         self.wait(0.4)
