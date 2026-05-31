@@ -1,5 +1,4 @@
-from dataclasses import dataclass
-from dataclasses import field
+from dataclasses import dataclass, field
 import math
 import random
 
@@ -8,9 +7,9 @@ from manim import *
 
 @dataclass(frozen=True)
 class BoardConfig:
-    line_spacing: float = 1.45
+    line_spacing: float = 1.5
     line_count: int = 5
-    line_length: float = 18.0
+    line_length: float = 30.0
 
     @property
     def needle_length(self):
@@ -41,12 +40,12 @@ class VisualConfig:
     title_font_size: int = 36
     needle_width: int = 4
     needle_outline_width: int = 6
-    box_fill_opacity: float = 0.78
-    fast_drop_time: float = 0.22
+    box_fill_opacity: float = 0.75
+    fast_drop_time: float = 1
 
-    stats_box_width: float = 3.15
-    stats_box_height: float = 1.74
-    stats_box_center = RIGHT * 4.42 + UP * 2.18
+    stats_box_width: float = 2.75
+    stats_box_height: float = 1.5
+    stats_box_center = RIGHT * 5.5 + UP * 2
 
 
 @dataclass(frozen=True)
@@ -94,16 +93,16 @@ class ExperimentConfig:
             ThrowSpec(LEFT * 3.3 + DOWN * 2.30, PI / 3.6),
             ThrowSpec(RIGHT * 0.1 + UP * 0.28, -PI / 8.0),
             ThrowSpec(LEFT * 1.6 + DOWN * 0.90, PI / 2.8),
-            ThrowSpec(RIGHT * 5.1 + UP * 1.85, -PI / 7.0),
+            ThrowSpec(RIGHT * 2.3 + UP * 2, -PI / 7.0),
         ],
     )
 
     batch_specs: list = field(
         default_factory=lambda: [
-            BatchSpec(11, 14, 0.21, 100, 64),
-            BatchSpec(22, 16, 0.19, 1_000, 637),
-            BatchSpec(33, 18, 0.17, 5_000, 3_183),
-            BatchSpec(44, 22, 0.15, 50_000, 31_831),
+            BatchSpec(11, 14, 0.5, 100, 64),
+            BatchSpec(22, 16, 0.4, 1_000, 637),
+            BatchSpec(33, 18, 0.3, 5_000, 3_183),
+            BatchSpec(44, 22, 0.2, 50_000, 31_831),
         ],
     )
 
