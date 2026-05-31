@@ -117,58 +117,114 @@ class NeedleRecord:
 
 
 class BuffonGeometry:
+    HORIZONTAL_EPSILON = 1e-9
+
+    RANDOM_X_RANGE = (-5.25, 5.15)
+    RANDOM_Y_RANGE = (-2.55, 2.55)
+    RANDOM_ANGLE_RANGE = (-PI / 2.15, PI / 2.15)
+
     def __init__(self, board):
         self.board = board
+        self._line_ys = self._create_line_ys()
 
     def line_ys(self):
-        return [
-            (index - self.board.center_offset) * self.board.line_spacing
+        return self._line_ys
+
+    def _create_line_ys(self):
+        spacing = self.board.line_spacing
+        offset = self.board.center_offset
+
+        return tuple(
+            (index - offset) * spacing
             for index in range(self.board.line_count)
-        ]
+        )
+
+    def needle_direction(self, angle):
+        x_direction = RIGHT * math.cos(angle)
+        y_direction = UP * math.sin(angle)
+
+        return x_direction + y_direction
 
     def needle_endpoints(self, midpoint, angle):
-        direction = RIGHT * math.cos(angle) + UP * math.sin(angle)
+        direction = self.needle_direction(angle)
+        half_length = self.board.half_needle_length
 
-        start = midpoint - self.board.half_needle_length * direction
-        end = midpoint + self.board.half_needle_length * direction
+        start = midpoint - half_length * direction
+        end = midpoint + half_length * direction
 
         return start, end
 
     def crossing_data(self, midpoint, angle):
         start, end = self.needle_endpoints(midpoint, angle)
 
+        return self.crossing_data_from_endpoints(start, end)
+
+    def crossing_data_from_endpoints(self, start, end):
         y_start = start[1]
         y_end = end[1]
+
+        if self._is_horizontal(y_start, y_end):
+            return False, None
 
         lower_y = min(y_start, y_end)
         upper_y = max(y_start, y_end)
 
-        if abs(y_end - y_start) < 1e-9:
-            return False, None
-
-        for line_y in self.line_ys():
-            if lower_y <= line_y <= upper_y:
-                t = (line_y - y_start) / (y_end - y_start)
-                x = start[0] + t * (end[0] - start[0])
-                crossing_point = RIGHT * x + UP * line_y
+        for line_y in self._line_ys:
+            if self._is_between(line_y, lower_y, upper_y):
+                crossing_point = self._crossing_point(
+                    start,
+                    end,
+                    line_y,
+                )
 
                 return True, crossing_point
 
         return False, None
 
+    def _is_horizontal(self, y_start, y_end):
+        return abs(y_end - y_start) < self.HORIZONTAL_EPSILON
+
+    def _is_between(self, value, lower, upper):
+        return lower <= value <= upper
+
+    def _crossing_point(self, start, end, line_y):
+        y_start = start[1]
+        y_end = end[1]
+        x_start = start[0]
+        x_end = end[0]
+
+        t = (line_y - y_start) / (y_end - y_start)
+        x = x_start + t * (x_end - x_start)
+
+        return RIGHT * x + UP * line_y
+
     def random_throw_specs(self, seed, count):
         rng = random.Random(seed)
-        specs = []
 
-        for _ in range(count):
-            x = rng.uniform(-5.25, 5.15)
-            y = rng.uniform(-2.55, 2.55)
-            angle = rng.uniform(-PI / 2.15, PI / 2.15)
-            midpoint = RIGHT * x + UP * y
+        return [
+            self._random_throw_spec(rng)
+            for _ in range(count)
+        ]
 
-            specs.append(ThrowSpec(midpoint, angle))
+    def _random_throw_spec(self, rng):
+        return ThrowSpec(
+            midpoint=self._random_midpoint(rng),
+            angle=self._random_angle(rng),
+        )
 
-        return specs
+    def _random_midpoint(self, rng):
+        x_min, x_max = self.RANDOM_X_RANGE
+        y_min, y_max = self.RANDOM_Y_RANGE
+
+        x = rng.uniform(x_min, x_max)
+        y = rng.uniform(y_min, y_max)
+
+        return RIGHT * x + UP * y
+
+    def _random_angle(self, rng):
+        angle_min, angle_max = self.RANDOM_ANGLE_RANGE
+
+        return rng.uniform(angle_min, angle_max)
 
 
 class BuffonMobjectFactory:
@@ -258,7 +314,10 @@ class BuffonMobjectFactory:
 
     def needle(self, midpoint, angle, needle_color=None, opacity=1.0):
         start, end = self.geometry.needle_endpoints(midpoint, angle)
-        crosses, crossing_point = self.geometry.crossing_data(midpoint, angle)
+        crosses, crossing_point = self.geometry.crossing_data_from_endpoints(
+            start,
+            end,
+        )
 
         if needle_color is None:
             needle_color = self.needle_color_for(crosses)
@@ -280,7 +339,7 @@ class BuffonMobjectFactory:
         inner.set_opacity(opacity)
 
         return VGroup(outline, inner), crosses, crossing_point
-
+        
     def needle_color_for(self, crosses):
         if crosses:
             return self.visual.crossing_color
