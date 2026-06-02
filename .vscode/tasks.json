@@ -4,7 +4,7 @@
         {
             "label": "Render Manim scene",
             "type": "shell",
-            "command": "uv run manim -qh buffon_scene.py BuffonNeedleExperimentScene && mpv --force-window=yes media/videos/buffon_scene/1080p60/BuffonNeedleExperimentScene.mp4",
+            "command": "uv run manim -ql --disable_caching buffon_scene.py BuffonNeedleExperimentScene && mpv --force-window=yes --loop-file=inf media/videos/buffon_scene/480p15/BuffonNeedleExperimentScene.mp4",
             "group": {
                 "kind": "build",
                 "isDefault": true

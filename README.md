@@ -1,4 +1,4 @@
-# Buffon Needle
+# Buffon's Needle
 
 [Українська версія](README.uk.md)
 
@@ -10,50 +10,69 @@ This project is being built step by step to create a short mathematical animatio
 
 The experiment idea:
 
-1. draw parallel lines;
+1. draw an infinite floor with equally spaced parallel lines;
 2. throw random needles;
 3. count how many needles intersect a line;
 4. estimate the experimental probability
 
 $$
-P \approx \frac{M}{N}
+P_{\mathrm{exp}} \approx \frac{K}{N}
 $$
 
 where:
 
 - $N$ is the total number of thrown needles;
-- $M$ is the number of needles that intersect a line;
-- $P$ is the experimental probability of intersection.
+- $K$ is the number of needles that intersect a line;
+- $P_{\mathrm{exp}}$ is the experimental probability of intersection.
 
-Then use this probability to estimate $\pi$:
-
-$$
-\pi \approx \frac{2L}{dP}
-$$
-
-where:
-
-- $L$ is the needle length;
-- $d$ is the distance between neighboring parallel lines.
-
-In the special case $L=d$:
+For the special case $l=d$, the theoretical probability is
 
 $$
-\pi \approx \frac{2N}{M}
+P = \frac{2}{\pi}.
+$$
+
+The animation shows experimentally that
+
+$$
+\frac{2}{P_{\mathrm{exp}}} = \frac{2N}{K} \approx \pi,
+$$
+
+and then leads to
+
+$$
+P \approx \frac{2}{\pi}.
 $$
 
 ## Current state
 
-The project currently contains the first Manim scene.
+The project currently contains the finalized main Manim scene for the experimental part of the video.
 
 The scene:
 
-- shows the title `Buffon's needle experiment`;
-- draws several horizontal parallel lines;
-- renders a basic Manim video;
-- checks that the Manim setup works correctly.
+- introduces an infinite floor with equally spaced parallel lines;
+- draws long horizontal parallel lines that extend beyond the visible frame;
+- shows the distance $d$ between neighboring lines;
+- shows the special case $l=d$;
+- demonstrates random needle throwing through random position and random angle;
+- highlights whether a needle crosses a line;
+- counts the total number of throws and crossings;
+- shows a large simulated experiment;
+- derives the visual relation between the experimental probability and $\pi$;
+- ends with the transition question for the proof part.
 
-Needles and intersection counting are not added yet.
+## Main scene
+
+The main scene is located in:
+
+```text
+buffon_scene.py
+```
+
+Scene class:
+
+```text
+BuffonNeedleExperimentScene
+```
 
 ## Project structure
 
@@ -71,7 +90,7 @@ buffon-needle/
 ## Files
 
 - `main.py` — basic Python test script.
-- `buffon_scene.py` — Manim scene for the first part of the Buffon's needle animation.
+- `buffon_scene.py` — Manim scene for Buffon's needle experiment.
 - `pyproject.toml` — project configuration and dependencies.
 - `uv.lock` — locked dependency versions.
 - `README.uk.md` — Ukrainian version of this README.
@@ -98,24 +117,69 @@ Expected output:
 Hello from buffon-needle!
 ```
 
-## Run the Manim scene
+## Quick preview render
+
+Use this command for a fast low-quality preview:
 
 ```bash
-uv run manim -pql buffon_scene.py ParallelLinesScene
+uv run manim -pql buffon_scene.py BuffonNeedleExperimentScene
 ```
 
 Command options:
 
+- `uv run` — run the command inside the project environment;
+- `manim` — run Manim;
 - `-p` — open the video after rendering;
-- `-q l` — render in low quality for a fast preview;
+- `-ql` — render in low quality for a fast preview;
 - `buffon_scene.py` — file with the Manim scene;
-- `ParallelLinesScene` — scene class name.
+- `BuffonNeedleExperimentScene` — scene class name.
+
+## Final 4K render
+
+Use this command for maximum quality:
+
+```bash
+uv run manim -qk buffon_scene.py BuffonNeedleExperimentScene
+```
+
+The rendered video will be saved in:
+
+```text
+media/videos/buffon_scene/2160p60/BuffonNeedleExperimentScene.mp4
+```
+
+## High-quality 1080p render
+
+If 4K rendering is too slow, use:
+
+```bash
+uv run manim -qh buffon_scene.py BuffonNeedleExperimentScene
+```
+
+The rendered video will be saved in:
+
+```text
+media/videos/buffon_scene/1080p60/BuffonNeedleExperimentScene.mp4
+```
 
 ## Generated files
 
 Manim creates a `media/` folder automatically.
 
 This folder contains generated videos and should not be committed to Git.
+
+## What not to commit
+
+Do not commit:
+
+```text
+.venv/
+media/
+__pycache__/
+*.pyc
+```
+
+These files and folders should be listed in `.gitignore`.
 
 ## Git notes
 
@@ -134,7 +198,7 @@ git add README.md README.uk.md
 Create a commit:
 
 ```bash
-git commit -m "Update README files"
+git commit -m "Update README docs"
 ```
 
 Push changes to GitHub:
@@ -152,18 +216,12 @@ git status
 Expected result:
 
 ```text
-On branch master
-Your branch is up to date with 'origin/master'.
-
 nothing to commit, working tree clean
 ```
 
 ## Next steps
 
-1. Understand the current `buffon_scene.py` code.
-2. Replace manual line coordinates with coordinates based on the distance `d`.
-3. Add one needle.
-4. Check whether the needle intersects a line.
-5. Add many random needles.
-6. Count intersections.
-7. Show $P \approx M/N$ and estimate $\pi$.
+1. Render the finalized experiment scene in final quality.
+2. Create the proof scene.
+3. Connect the experiment and proof parts.
+4. Add narration, sound, subtitles, and final editing.
