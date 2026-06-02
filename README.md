@@ -45,7 +45,7 @@ $$
 
 ## Current state
 
-The project currently contains the main Manim scene for the experimental part of the video.
+The project currently contains the finalized main Manim scene for the experimental part of the video.
 
 The scene:
 
@@ -221,8 +221,7 @@ nothing to commit, working tree clean
 
 ## Next steps
 
-1. Finish the experimental scene polish.
-2. Render the scene in final quality.
-3. Create the proof scene.
-4. Connect the experiment and proof parts.
-5. Add narration, sound, subtitles, and final editing.
+1. Render the finalized experiment scene in final quality.
+2. Create the proof scene.
+3. Connect the experiment and proof parts.
+4. Add narration, sound, subtitles, and final editing.
